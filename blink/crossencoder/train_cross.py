@@ -89,17 +89,13 @@ def evaluate(reranker, eval_dataloader, device, logger, context_length, zeshel=F
         batch = tuple(t.to(device) for t in batch)
         context_input = batch[0]
         label_input = batch[1]
-        # here it gets the predictions
         with torch.no_grad():
             eval_loss, logits = reranker(context_input, label_input, context_length)
 
         logits = logits.detach().cpu().numpy()
-        label_ids = label_input.cpu().numpy() 
-        # you don't know what the label for the label_id is, as here it only encodes where it is appeared in the nn predictions from the biencoder.
+        label_ids = label_input.cpu().numpy()
 
-        #print('label_ids in train_cross.evaluate():',label_ids)
-        tmp_eval_accuracy, eval_result = utils.accuracy(logits, label_ids) 
-        # the first argument output, tmp_eval_accuracy, is the num of acc instances in the batch
+        tmp_eval_accuracy, eval_result = utils.accuracy(logits, label_ids)
 
         eval_accuracy += tmp_eval_accuracy
         all_logits.extend(logits)
@@ -113,7 +109,6 @@ def evaluate(reranker, eval_dataloader, device, logger, context_length, zeshel=F
         nb_eval_steps += 1
 
     normalized_eval_accuracy = -1
-    #print('nb_eval_examples:',nb_eval_examples)
     if nb_eval_examples > 0:
         normalized_eval_accuracy = eval_accuracy / nb_eval_examples
     if zeshel:
@@ -132,7 +127,6 @@ def evaluate(reranker, eval_dataloader, device, logger, context_length, zeshel=F
             logger.info("Eval accuracy: %.5f" % normalized_eval_accuracy)
 
     results["normalized_accuracy"] = normalized_eval_accuracy
-    #print('normalized_eval_accuracy in train_cross.evaluate():',normalized_eval_accuracy)
     results["logits"] = all_logits
     return results
 

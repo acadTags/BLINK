@@ -32,7 +32,6 @@ DATASETS = [
     },
 ]
 
-#the key parameters here
 PARAMETERS = {
     "faiss_index": None,
     "index_path": None,
@@ -41,8 +40,8 @@ PARAMETERS = {
     "interactive": False,
     "biencoder_model": "models/biencoder_wiki_large.bin",
     "biencoder_config": "models/biencoder_wiki_large.json",
-    "entity_catalogue": "models/entity.jsonl", # a four-element entity data structure: text (or definition), idx (or url), title (or name of the entity), entity (canonical name)
-    "entity_encoding": "models/all_entities_large.t7", # a torch7 file # how to get this?
+    "entity_catalogue": "models/entity.jsonl",
+    "entity_encoding": "models/all_entities_large.t7",
     "crossencoder_model": "models/crossencoder_wiki_large.bin",
     "crossencoder_config": "models/crossencoder_wiki_large.json",
     "output_path": "output",
@@ -53,7 +52,7 @@ args = argparse.Namespace(**PARAMETERS)
 
 logger = utils.get_logger(args.output_path)
 
-models = main_dense.load_models(args, logger) # load biencoder, crossencoder, and candidate entities
+models = main_dense.load_models(args, logger)
 
 table = prettytable.PrettyTable(
     [
@@ -71,7 +70,6 @@ for dataset in DATASETS:
     PARAMETERS["test_mentions"] = dataset["filename"]
 
     args = argparse.Namespace(**PARAMETERS)
-    
     (
         biencoder_accuracy,
         recall_at,
@@ -80,7 +78,7 @@ for dataset in DATASETS:
         num_datapoints,
         predictions,
         scores,
-    ) = main_dense.run(args, logger, *models) # here it starts inferencing
+    ) = main_dense.run(args, logger, *models)
 
     table.add_row(
         [

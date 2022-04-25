@@ -44,7 +44,7 @@ def prepare_crossencoder_mentions(
 
 
 def prepare_crossencoder_candidates(
-    tokenizer, labels, nns, id2title, id2text, max_cand_length=128, topk=100, NIL_ent_id=88150
+    tokenizer, labels, nns, id2title, id2text, max_cand_length=128, topk=100
 ):
 
     START_TOKEN = tokenizer.cls_token
@@ -52,23 +52,15 @@ def prepare_crossencoder_candidates(
 
     candidate_input_list = []  # samples X topk=10 X 128
     label_input_list = []  # samples
-    label_NIL_input_list = [] # the one just like label_input_list, but for NIL entities only
     idx = 0
     for label, nn in zip(labels, nns):
         candidates = []
 
         label_id = -1
-        label_id_NIL = -1
         for jdx, candidate_id in enumerate(nn[:topk]):
-            
-            # create gold label id as the index in the topk predictions in nn, if existed in nn, otherwise as -1. 
+
             if label == candidate_id:
-                #print('gold label found in nn: label',type(label),label,'candidate_id',jdx,type(candidate_id),candidate_id)
-                #output: gold label found in nn: label <class 'numpy.ndarray'> [11747] candidate_id 0 <class 'numpy.int64'> 11747
-                label_id = jdx # the index of labels in the crossencoder is its index in the predictions of biencoder, thus changed to between 0 and topk-1
-                if label == NIL_ent_id:
-                    print('gold NIL entity found in nn')
-                    label_id_NIL = jdx # the index of the NIL entity if it is the gold albel
+                label_id = jdx
 
             rep = data.get_candidate_representation(
                 id2text[candidate_id],
@@ -82,7 +74,6 @@ def prepare_crossencoder_candidates(
             candidates.append(tokens_ids)
 
         label_input_list.append(label_id)
-        label_NIL_input_list.append(label_id_NIL)
         candidate_input_list.append(candidates)
 
         idx += 1
@@ -90,10 +81,9 @@ def prepare_crossencoder_candidates(
         sys.stdout.flush()
 
     label_input_list = np.asarray(label_input_list)
-    label_NIL_input_list = np.asarray(label_NIL_input_list)
     candidate_input_list = np.asarray(candidate_input_list)
 
-    return label_input_list, candidate_input_list, label_NIL_input_list
+    return label_input_list, candidate_input_list
 
 
 def filter_crossencoder_tensor_input(
@@ -123,47 +113,35 @@ def filter_crossencoder_tensor_input(
 
 
 def prepare_crossencoder_data(
-    tokenizer, samples, labels, nns, id2title, id2text, keep_all=False,test_NIL_label_only=False
+    tokenizer, samples, labels, nns, id2title, id2text, keep_all=False
 ):
 
     # encode mentions
     context_input_list = prepare_crossencoder_mentions(tokenizer, samples)
 
     # encode candidates (output of biencoder)
-    label_input_list, candidate_input_list,label_NIL_input_list = prepare_crossencoder_candidates(
+    label_input_list, candidate_input_list = prepare_crossencoder_candidates(
         tokenizer, labels, nns, id2title, id2text
     )
 
     if not keep_all:
         # remove examples where the gold entity is not among the candidates
-        if not test_NIL_label_only:
-            # this is the original setting
-            (
-                context_input_list,
-                label_input_list,
-                candidate_input_list,
-            ) = filter_crossencoder_tensor_input(
-                context_input_list, label_input_list, candidate_input_list
-            )
-        else:
-            # here it uses label_NIL_input_list, the annotation vector of index of gold NIL labels in nn (if existed, otherwise -1)
-            (
-                context_input_list,
-                label_NIL_input_list,
-                candidate_input_list,
-            ) = filter_crossencoder_tensor_input(
-                context_input_list, label_NIL_input_list, candidate_input_list                 
-            )
+        (
+            context_input_list,
+            label_input_list,
+            candidate_input_list,
+        ) = filter_crossencoder_tensor_input(
+            context_input_list, label_input_list, candidate_input_list
+        )
     else:
         label_input_list = [0] * len(label_input_list)
 
     context_input = torch.LongTensor(context_input_list)
     label_input = torch.LongTensor(label_input_list)
-    label_NIL_input = torch.LongTensor(label_NIL_input_list)
     candidate_input = torch.LongTensor(candidate_input_list)
 
     return (
         context_input,
         candidate_input,
-        label_input if not test_NIL_label_only else label_NIL_input,
+        label_input,
     )

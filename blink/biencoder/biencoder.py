@@ -22,7 +22,6 @@ from pytorch_transformers.tokenization_bert import BertTokenizer
 from blink.common.ranker_base import BertEncoder, get_model_obj
 from blink.common.optimizer import get_bert_optimizer
 
-#torch.cuda.set_device(0)
 
 def load_biencoder(params):
     # Init model
@@ -40,14 +39,12 @@ class BiEncoderModule(torch.nn.Module):
             params["out_dim"],
             layer_pulled=params["pull_from_layer"],
             add_linear=params["add_linear"],
-            name='context_encoder',
         )
         self.cand_encoder = BertEncoder(
             cand_bert,
             params["out_dim"],
             layer_pulled=params["pull_from_layer"],
             add_linear=params["add_linear"],
-            name='cand_encoder',
         )
         self.config = ctxt_bert.config
 
@@ -62,14 +59,12 @@ class BiEncoderModule(torch.nn.Module):
     ):
         embedding_ctxt = None
         if token_idx_ctxt is not None:
-            #print('token_idx_ctxt:',token_idx_ctxt, '\nsegment_idx_ctxt:',segment_idx_ctxt, '\nmask_ctxt:',mask_ctxt)
-            embedding_ctxt = self.context_encoder( # this calls the blink.common.ranker_base.BertEncoder.forward()
+            embedding_ctxt = self.context_encoder(
                 token_idx_ctxt, segment_idx_ctxt, mask_ctxt
             )
         embedding_cands = None
         if token_idx_cands is not None:
-            #print('token_idx_cands:',token_idx_cands, '\nsegment_idx_cands:',segment_idx_cands, '\nmask_cands:',mask_cands)
-            embedding_cands = self.cand_encoder( # this calls the blink.common.ranker_base.BertEncoder.forward()
+            embedding_cands = self.cand_encoder(
                 token_idx_cands, segment_idx_cands, mask_cands
             )
         return embedding_ctxt, embedding_cands
@@ -77,13 +72,12 @@ class BiEncoderModule(torch.nn.Module):
 
 class BiEncoderRanker(torch.nn.Module):
     def __init__(self, params, shared=None):
-        super(BiEncoderRanker, self).__init__() # call the __init__ of the super method
+        super(BiEncoderRanker, self).__init__()
         self.params = params
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() and not params["no_cuda"] else "cpu"
         )
         self.n_gpu = torch.cuda.device_count()
-        print('self.device in BiEncoderRanker:',self.device)
         # init tokenizer
         self.NULL_IDX = 0
         self.START_TOKEN = "[CLS]"
@@ -107,16 +101,15 @@ class BiEncoderRanker(torch.nn.Module):
             state_dict = torch.load(fname, map_location=lambda storage, location: "cpu")
         else:
             state_dict = torch.load(fname)
-        self.model.load_state_dict(state_dict) # load state_dict # https://pytorch.org/tutorials/beginner/saving_loading_models.html#what-is-a-state-dict
-        # https://pytorch.org/tutorials/beginner/saving_loading_models.html
+        self.model.load_state_dict(state_dict)
 
     def build_model(self):
-        self.model = BiEncoderModule(self.params) # ranker model is a BiEncoderModule 
+        self.model = BiEncoderModule(self.params)
 
     def save_model(self, output_dir):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-        model_to_save = get_model_obj(self.model)
+        model_to_save = get_model_obj(self.model) 
         output_model_file = os.path.join(output_dir, WEIGHTS_NAME)
         output_config_file = os.path.join(output_dir, CONFIG_NAME)
         torch.save(model_to_save.state_dict(), output_model_file)
@@ -150,7 +143,6 @@ class BiEncoderRanker(torch.nn.Module):
         # TODO: why do we need cpu here?
         # return embedding_cands
 
-    # to understand more - HD 8 Apr 22
     # Score candidates given context input and label input
     # If cand_encs is provided (pre-computed), cand_ves is ignored
     def score_candidate(
@@ -164,23 +156,14 @@ class BiEncoderRanker(torch.nn.Module):
         token_idx_ctxt, segment_idx_ctxt, mask_ctxt = to_bert_input(
             text_vecs, self.NULL_IDX
         )
-        ## Put the contexts tensors into gpu if it is available - not necessary, just always to set the no_cuda as True, the it will use the CPU to do the bi-encoder stage.
-        #token_idx_ctxt = token_idx_ctxt.to(self.device)
-        #segment_idx_ctxt = segment_idx_ctxt.to(self.device)
-        #mask_ctxt = mask_ctxt.to(self.device)
-
         embedding_ctxt, _ = self.model(
             token_idx_ctxt, segment_idx_ctxt, mask_ctxt, None, None, None
         )
-        #print('embedding_ctxt:',embedding_ctxt)
+
         # Candidate encoding is given, do not need to re-compute
         # Directly return the score of context encoding and candidate encoding
         if cand_encs is not None:
-            cand_encs = cand_encs.to(self.device)
-            #print('cand_encs:',cand_encs)
-            scores = embedding_ctxt.mm(cand_encs.t())
-            #print('scores:',scores.size()) # scores: torch.Size([8, 5903527])
-            return scores #embedding_ctxt.mm(cand_encs.t()).to(self.device)
+            return embedding_ctxt.mm(cand_encs.t())
 
         # Train time. We compare with all elements of the batch
         token_idx_cands, segment_idx_cands, mask_cands = to_bert_input(
