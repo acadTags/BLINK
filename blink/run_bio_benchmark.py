@@ -12,24 +12,29 @@ import blink.candidate_ranking.utils as utils
 
 DATASETS = [
     {
-        "name": "AIDA-YAGO2 testa",
-        "filename": "data/BLINK_benchmark/AIDA-YAGO2_testa.jsonl",
+        "name": "Share-CLEF_eHealth2013-train-sampled",
+        "filename": "preprocessing/share_clef_2013_train_sampled.json", 
     },
     {
-        "name": "AIDA-YAGO2 testb",
-        "filename": "data/BLINK_benchmark/AIDA-YAGO2_testb.jsonl",
+        "name": "Share-CLEF_eHealth2013-test-preprocessed",
+        "filename": "preprocessing/share_clef_2013_test_sampled.json", 
     },
-    {"name": "ACE 2004", "filename": "data/BLINK_benchmark/ace2004_questions.jsonl"},
-    {"name": "aquaint", "filename": "data/BLINK_benchmark/aquaint_questions.jsonl"},
-    {
-        "name": "clueweb - WNED-CWEB (CWEB)",
-        "filename": "data/BLINK_benchmark/clueweb_questions.jsonl",
-    },
-    {"name": "msnbc", "filename": "data/BLINK_benchmark/msnbc_questions.jsonl"},
-    {
-        "name": "wikipedia - WNED-WIKI (WIKI)",
-        "filename": "data/BLINK_benchmark/wnedwiki_questions.jsonl",
-    },
+    # {
+    #     "name": "Share-CLEF_eHealth2013-train-preprocessed",
+    #     "filename": "preprocessing/share_clef_2013_train_preprocessed.json", 
+    # },
+    # {
+    #     "name": "Share-CLEF_eHealth2013-test-preprocessed",
+    #     "filename": "preprocessing/share_clef_2013_test_preprocessed.json", 
+    # },
+    # {
+    #     "name": "Share-CLEF_eHealth2013-train",
+    #     "filename": "preprocessing/share_clef_2013_train.json", 
+    # },
+    # {
+    #     "name": "Share-CLEF_eHealth2013-test",
+    #     "filename": "preprocessing/share_clef_2013_test.json", 
+    # },
 ]
 
 #the key parameters here
@@ -41,8 +46,11 @@ PARAMETERS = {
     "interactive": False,
     "biencoder_model": "models/biencoder_wiki_large.bin",
     "biencoder_config": "models/biencoder_wiki_large.json",
-    "entity_catalogue": "models/entity.jsonl", # a four-element entity data structure: text (or definition), idx (or url), title (or name of the entity), entity (canonical name)
-    "entity_encoding": "models/all_entities_large.t7", # a torch7 file # how to get this?
+    "entity_catalogue": "preprocessing/UMLS2012AB_with_NIL.jsonl", # a four-element entity data structure: text (or definition), idx (or url), title (or name of the entity), entity (canonical name)
+    #UMLS2012AB_with_NIL.jsonl (with NIL or CUI-less as an entity added) or UMLS2012AB.jsonl (original list of entities)
+    # file2 to create    
+    "entity_encoding": "models/UMLS2012AB_ent_enc/UMLS2012AB_ent_enc.t7", # a torch7 file # how to get this?
+    # file3 to create
     "crossencoder_model": "models/crossencoder_wiki_large.bin",
     "crossencoder_config": "models/crossencoder_wiki_large.json",
     "output_path": "output",
@@ -60,6 +68,8 @@ table = prettytable.PrettyTable(
         "DATASET",
         "biencoder accuracy",
         "recall at 100",
+        "biencoder accuracy for NIL",
+        "recall at 100 for NIL",
         "crossencoder normalized accuracy",
         "overall unormalized accuracy",
         "support",
@@ -69,12 +79,15 @@ table = prettytable.PrettyTable(
 for dataset in DATASETS:
     logger.info(dataset["name"])
     PARAMETERS["test_mentions"] = dataset["filename"]
+    #set the parameter test_mentions as the filename of the dataset
 
     args = argparse.Namespace(**PARAMETERS)
     
     (
         biencoder_accuracy,
         recall_at,
+        biencoder_NIL_accuracy,
+        recall_NIL_at,
         crossencoder_normalized_accuracy,
         overall_unormalized_accuracy,
         num_datapoints,
@@ -87,10 +100,14 @@ for dataset in DATASETS:
             dataset["name"],
             round(biencoder_accuracy, 4),
             round(recall_at, 4),
+            round(biencoder_NIL_accuracy, 4),
+            round(recall_NIL_at, 4),
             round(crossencoder_normalized_accuracy, 4),
             round(overall_unormalized_accuracy, 4),
             num_datapoints,
         ]
     )
-
+    # to look at these later
+    #print('predictions:',predictions)
+    #print('scores:',scores)
 logger.info("\n{}".format(table))

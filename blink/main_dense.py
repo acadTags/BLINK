@@ -38,6 +38,7 @@ HIGHLIGHTS = [
     "on_cyan",
 ]
 
+#torch.cuda.set_device(0)
 
 def _print_colorful_text(input_sentence, samples):
     init()  # colorful output
@@ -96,12 +97,13 @@ def _annotate(ner_model, input_sentences):
     return samples
 
 
+# here it load all the candidate entities, which need both the catalogue of the entity and the encoding of the entity
 def _load_candidates(
     entity_catalogue, entity_encoding, faiss_index=None, index_path=None, logger=None
 ):
     # only load candidate encoding if not using faiss index
     if faiss_index is None:
-        candidate_encoding = torch.load(entity_encoding)
+        candidate_encoding = torch.load(entity_encoding) # load the .t7 model of entity encoding
         indexer = None
     else:
         if logger:
@@ -122,7 +124,7 @@ def _load_candidates(
     id2text = {}
     wikipedia_id2local_id = {}
     local_idx = 0
-    with open(entity_catalogue, "r") as fin:
+    with open(entity_catalogue, "r", encoding="utf-8-sig") as fin: # encoding adapted to utf-8-sig if needed
         lines = fin.readlines()
         for line in lines:
             entity = json.loads(line)
@@ -170,9 +172,10 @@ def __map_test_entities(test_entities_path, title2id, logger):
     return kb2id
 
 
+# here it processes the .json test file
 def __load_test(test_filename, kb2id, wikipedia_id2local_id, logger):
     test_samples = []
-    with open(test_filename, "r") as fin:
+    with open(test_filename, "r", encoding="utf-8-sig") as fin: # encoding adapted to utf-8-sig if needed
         lines = fin.readlines()
         for line in lines:
             record = json.loads(line)
@@ -188,14 +191,25 @@ def __load_test(test_filename, kb2id, wikipedia_id2local_id, logger):
             # check that each entity id (label_id) is in the entity collection
             elif wikipedia_id2local_id and len(wikipedia_id2local_id) > 0:
                 try:
-                    key = int(record["label"].strip())
+                    key = record["label"].strip()
+                    if key.isnumeric():
+                        key = int(record["label"].strip())  
                     if key in wikipedia_id2local_id:
                         record["label_id"] = wikipedia_id2local_id[key]
+                        '''
+                        for Share-CLEF_eHealth2013-train/test
+                        unfound in entity id list: C0746226
+                        unfound in entity id list: C0750125
+                        unfound in entity id list: C0085649
+                        unfound in entity id list: C0600260
+                        '''
                     else:
+                        print('unfound in entity id list:',key)
                         continue
                 except:
                     continue
 
+            #print('record label:', record['label_id'])
             # LOWERCASE EVERYTHING !
             record["context_left"] = record["context_left"].lower()
             record["context_right"] = record["context_right"].lower()
@@ -248,15 +262,30 @@ def _run_biencoder(biencoder, dataloader, candidate_encoding, top_k=100, indexer
                 scores, indicies = indexer.search_knn(context_encoding, top_k)
             else:
                 scores = biencoder.score_candidate(
-                    context_input, None, cand_encs=candidate_encoding  # .to(device)
+                    context_input, None, cand_encs=candidate_encoding #.to(device)
                 )
-                scores, indicies = scores.topk(top_k)
-                scores = scores.data.numpy()
-                indicies = indicies.data.numpy()
+                #print('scores:',scores) sample scores below
+                '''scores: tensor([[73.8414, 72.7153, 74.7849,  ..., 74.1165, 75.0617, 71.7682],
+                [70.2872, 69.9775, 70.9030,  ..., 72.0679, 71.9649, 67.5665],
+                [78.1441, 75.7104, 77.5939,  ..., 78.3324, 76.8203, 71.4749],
+                ...,
+                [74.0225, 73.1922, 74.2409,  ..., 74.1694, 75.4666, 68.5208],
+                [77.9721, 75.5569, 76.7411,  ..., 78.7790, 75.8169, 71.0363],
+                [74.3793, 74.5216, 74.1057,  ..., 74.5519, 74.9505, 71.2634]])
+                '''
+                scores, indicies = scores.topk(top_k) # indices, this is just the row indices in the cand encoding matrix, corresponding to the local_idx for id2text, see def _load_candidates() in main_dense
+                #print('scores:',scores)
+                #print('scores.data:',scores.data)
+                scores = scores.data.cpu().numpy()
+                indicies = indicies.data.cpu().numpy()
+                #error if .cpu() from cuda device - RuntimeError: CUDA error: an illegal memory access was encountered
+                #scores = scores.data.cpu().numpy()
+                #indicies = indicies.data.cpu().numpy()
 
         labels.extend(label_ids.data.numpy())
         nns.extend(indicies)
         all_scores.extend(scores)
+    #print('nns:',nns) 
     return labels, nns, all_scores
 
 
@@ -276,6 +305,7 @@ def _run_crossencoder(crossencoder, dataloader, logger, context_len, device="cud
 
     res = evaluate(crossencoder, dataloader, device, logger, context_len, zeshel=False, silent=False)
     accuracy = res["normalized_accuracy"]
+    #print('accuracy in _run_crossencoder:',accuracy)
     logits = res["logits"]
 
     if accuracy > -1:
@@ -354,6 +384,7 @@ def run(
     faiss_indexer=None,
     test_data=None,
 ):
+    #print('wikipedia_id2local_id in main_dense.run():',wikipedia_id2local_id)
 
     if not test_data and not args.test_mentions and not args.interactive:
         msg = (
@@ -457,10 +488,12 @@ def run(
             biencoder_accuracy = -1
             recall_at = -1
             if not keep_all:
-                # get recall values
+                # get recall values for in-KB entities
                 top_k = args.top_k
                 x = []
                 y = []
+                #print('labels:',len(labels),labels)
+                #print('nns:',len(nns),nns)
                 for i in range(1, top_k):
                     temp_y = 0.0
                     for label, top in zip(labels, nns):
@@ -471,10 +504,39 @@ def run(
                     x.append(i)
                     y.append(temp_y)
                 # plt.plot(x, y)
-                biencoder_accuracy = y[0]
-                recall_at = y[-1]
+                biencoder_accuracy = y[0] # the top1 accurarcy
+                recall_at = y[-1] # the top_k (k as 100) accuracy
                 print("biencoder accuracy: %.4f" % biencoder_accuracy)
-                print("biencoder recall@%d: %.4f" % (top_k, y[-1]))
+                print("biencoder recall@%d: %.4f" % (top_k, recall_at))
+                
+                # get recall values for out-of-KB / NIL entities: biencoder_NIL_acc and recall_NIL_at
+                biencoder_NIL_accuracy = -1
+                recall_NIL_at = -1
+                if 'CUI-less' in wikipedia_id2local_id:
+                    x_NIL = []
+                    y_NIL = []
+                    label_id_NIL = wikipedia_id2local_id['CUI-less']
+                    #label_selected = wikipedia_id2local_id['C0520863']
+                    #print('label_id_NIL:',label_id_NIL)
+                    for i in range(1, top_k):
+                        temp_y = 0.0
+                        num_NIL_label = 0
+                        for label, top in zip(labels, nns):
+                            #print('label:',label,str(label[0]))
+                            #narrow down to the specific label, NIL
+                            if str(label[0]) == str(label_id_NIL):
+                                if label in top[:i]:
+                                    temp_y += 1
+                                num_NIL_label += 1    
+                        if num_NIL_label > 0:
+                            temp_y /= num_NIL_label
+                        x_NIL.append(i)
+                        y_NIL.append(temp_y)
+                    # plt.plot(x_NIL, y_NIL)
+                    biencoder_NIL_accuracy = y_NIL[0] # the top1 accurarcy
+                    recall_NIL_at = y_NIL[-1] # the top_k (k as 100) accuracy
+                    print("biencoder accuracy for NIL: %.4f" % biencoder_NIL_accuracy)
+                    print("biencoder recall@%d for NIL: %.4f" % (top_k, recall_NIL_at))
 
             if args.fast:
 
@@ -497,9 +559,15 @@ def run(
                     scores,
                 )
 
-        # prepare crossencoder data
+        # now we reach the territory of crossencoder
+
+        #if test_NIL_label_only:
+        #    print('only test NIL labels in the cross-encoder: the crossencoder normalized accuracy and overall unnormalised accuracy metrics are for NIL labels')
+        
+        # prepare crossencoder data for in-KB labels
+        test_NIL_label_only = False
         context_input, candidate_input, label_input = prepare_crossencoder_data(
-            crossencoder.tokenizer, samples, labels, nns, id2title, id2text, keep_all,
+            crossencoder.tokenizer, samples, labels, nns, id2title, id2text, keep_all,test_NIL_label_only
         )
 
         context_input = modify(
@@ -510,10 +578,32 @@ def run(
             context_input, label_input, crossencoder_params
         )
 
-        # run crossencoder and get accuracy
+        # run crossencoder and get accuracy for in-KB labels
         accuracy, index_array, unsorted_scores = _run_crossencoder(
             crossencoder,
             dataloader,
+            logger,
+            context_len=biencoder_params["max_context_length"],
+        )
+
+        # prepare crossencoder data for out-of-KB / NIL labels
+        test_NIL_label_only = True
+        context_input_for_NIL, candidate_input_for_NIL, label_NIL_input = prepare_crossencoder_data(
+            crossencoder.tokenizer, samples, labels, nns, id2title, id2text, keep_all,test_NIL_label_only
+        )
+
+        context_input_for_NIL = modify(
+            context_input_for_NIL, candidate_input_for_NIL, crossencoder_params["max_seq_length"]
+        )
+
+        dataloader_for_NIL = _process_crossencoder_dataloader(
+            context_input_for_NIL, label_NIL_input, crossencoder_params
+        )
+
+        # run crossencoder and get accuracy for out-of-KB / NIL labels
+        accuracy_for_NIL, index_array_for_NIL, unsorted_scores_for_NIL = _run_crossencoder(
+            crossencoder,
+            dataloader_for_NIL,
             logger,
             context_len=biencoder_params["max_context_length"],
         )
@@ -526,7 +616,7 @@ def run(
 
             # print crossencoder prediction
             idx = 0
-            for entity_list, index_list, sample in zip(nns, index_array, samples):
+            for entity_list, index_list, sample in zip(nns, index_array, samples): #index_array is the prediction
                 e_id = entity_list[index_list[-1]]
                 e_title = id2title[e_id]
                 e_text = id2text[e_id]
@@ -538,6 +628,7 @@ def run(
             print()
         else:
 
+            # get the evaluation scores
             scores = []
             predictions = []
             for entity_list, index_list, scores_list in zip(
@@ -561,23 +652,55 @@ def run(
 
             crossencoder_normalized_accuracy = -1
             overall_unormalized_accuracy = -1
+            crossencoder_normalized_NIL_accuracy = -1
+            overall_unormalized_NIL_accuracy = -1
             if not keep_all:
+                #for in-KB entities
                 crossencoder_normalized_accuracy = accuracy
                 print(
                     "crossencoder normalized accuracy: %.4f"
                     % crossencoder_normalized_accuracy
                 )
-
+                #print('label_input',label_input)
+                #label_input tensor([ 0,  0, 25, 44,  0,  1, 42,  0,  6,  0,  0,  1, 27, 20,  1,  1, 24, 94,
+                #0,  0,  0,  0,  1,  1,  0,  0,  5,  1,  0,  0,  3,  0, 26,  0,  0,  0,
+                #0, 23,  0,  1,  0,  0,  0,  0,  0,  1,  1, 35, 20,  3,  0,  0, 27,  0,
+                #0,  0, 62,  0, 16,  0])
+                #print('samples',samples)
                 if len(samples) > 0:
                     overall_unormalized_accuracy = (
-                        crossencoder_normalized_accuracy * len(label_input) / len(samples)
+                        crossencoder_normalized_accuracy * len(label_input) / len(samples) 
+                        # unnormalise the crossencoder accuracy to the scale of whole samples (from the scale of retrieved candidates by the bi-encoder)
                     )
                 print(
                     "overall unnormalized accuracy: %.4f" % overall_unormalized_accuracy
                 )
+
+                #for out-of-KB / NIL entities 
+                crossencoder_normalized_NIL_accuracy = accuracy_for_NIL
+                print(
+                    "crossencoder normalized accuracy for NIL: %.4f"
+                    % crossencoder_normalized_NIL_accuracy
+                )
+                #print('label_NIL_input',label_NIL_input)
+                #label_input tensor([ 0,  0, 25, 44,  0,  1, 42,  0,  6,  0,  0,  1, 27, 20,  1,  1, 24, 94,
+                #0,  0,  0,  0,  1,  1,  0,  0,  5,  1,  0,  0,  3,  0, 26,  0,  0,  0,
+                #0, 23,  0,  1,  0,  0,  0,  0,  0,  1,  1, 35, 20,  3,  0,  0, 27,  0,
+                #0,  0, 62,  0, 16,  0])
+                #print('samples',samples)
+                if len(samples) > 0:
+                    overall_unormalized_NIL_accuracy = (
+                        crossencoder_normalized_NIL_accuracy * len(label_NIL_input) / len(samples) 
+                        # unnormalise the crossencoder accuracy to the scale of whole samples (from the scale of retrieved candidates by the bi-encoder)
+                    )
+                print(
+                    "overall unnormalized accuracy for NIL: %.4f" % crossencoder_normalized_NIL_accuracy
+                )
             return (
                 biencoder_accuracy,
                 recall_at,
+                biencoder_NIL_accuracy,
+                recall_NIL_at,
                 crossencoder_normalized_accuracy,
                 overall_unormalized_accuracy,
                 len(samples),

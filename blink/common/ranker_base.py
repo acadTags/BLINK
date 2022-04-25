@@ -13,7 +13,7 @@ def get_model_obj(model):
 
 class BertEncoder(nn.Module):
     def __init__(
-        self, bert_model, output_dim, layer_pulled=-1, add_linear=None):
+        self, bert_model, output_dim, layer_pulled=-1, add_linear=None,name=''):
         super(BertEncoder, self).__init__()
         self.layer_pulled = layer_pulled
         bert_output_dim = bert_model.embeddings.word_embeddings.weight.size(1)
@@ -24,8 +24,10 @@ class BertEncoder(nn.Module):
             self.dropout = nn.Dropout(0.1)
         else:
             self.additional_linear = None
+        self.name=name    
 
     def forward(self, token_ids, segment_ids, attention_mask):
+        #print('BertEncoder is encoding things:', self.name)
         output_bert, output_pooler = self.bert_model(
             token_ids, segment_ids, attention_mask
         )
